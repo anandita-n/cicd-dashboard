@@ -112,8 +112,9 @@ function App() {
   const totalBuildsCollected = recentBuilds.length;
   const successCount = recentBuilds.filter(b => b.status === 'SUCCESS').length;
   const failureCount = recentBuilds.filter(b => b.status === 'FAILURE').length;
-  const overallSuccessRate = totalBuildsCollected > 0 
-    ? ((successCount / totalBuildsCollected) * 100).toFixed(1) 
+  const totalCalculated = successCount + failureCount;
+  const overallSuccessRate = totalCalculated > 0 
+    ? ((successCount / totalCalculated) * 100).toFixed(1) 
     : '0';
   
   // Calculate average duration in recent builds
