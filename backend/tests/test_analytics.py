@@ -45,7 +45,8 @@ def test_parse_jenkins_build_detail_in_progress():
         "duration": 0
     }
     parsed = parse_jenkins_build_detail("snap-link", 13, detail)
-    assert parsed is None
+    assert parsed is not None
+    assert parsed["status"] == "BUILDING"
 
 # Test failure rate logic
 def test_compute_daily_failure_rate():

@@ -18,6 +18,23 @@ from collector.utils import find_new_build_numbers, parse_jenkins_build_detail
 Base.metadata.create_all(bind=engine)
 
 def load_config():
+    # Load .env file manually if it exists to set environment variables
+    env_file = os.path.join(project_root, ".env")
+    if os.path.exists(env_file):
+        try:
+            with open(env_file, "r") as f:
+                for line in f:
+                    line = line.strip()
+                    if not line or line.startswith("#"):
+                        continue
+                    if "=" in line:
+                        k, v = line.split("=", 1)
+                        k = k.strip()
+                        v = v.strip().strip("'\"")
+                        os.environ[k] = v
+        except Exception as e:
+            print(f"Error loading .env file: {e}")
+
     config = {
         "jenkins_url": "http://localhost:8080",
         "jobs": ["snap-link"],
@@ -79,16 +96,19 @@ def poll_job(job_name: str, config: dict, db):
     data = response.json()
     jenkins_builds = data.get("builds", [])
     
-    # Fetch existing builds for this job from database
-    existing_builds = db.query(Build.build_number).filter(Build.job_name == job_name).all()
-    existing_numbers = {b[0] for b in existing_builds}
+    # Fetch completed builds for this job from database (status is not BUILDING)
+    completed_builds = db.query(Build.build_number).filter(
+        Build.job_name == job_name,
+        Build.status != "BUILDING"
+    ).all()
+    completed_numbers = {b[0] for b in completed_builds}
     
-    new_numbers = find_new_build_numbers(jenkins_builds, existing_numbers)
+    new_numbers = find_new_build_numbers(jenkins_builds, completed_numbers)
     if not new_numbers:
-        print(f"No new builds to ingest for job '{job_name}'.")
+        print(f"No new or in-progress builds to ingest/update for job '{job_name}'.")
         return
         
-    print(f"Found {len(new_numbers)} new builds to ingest: {new_numbers}")
+    print(f"Found {len(new_numbers)} builds to ingest or update: {new_numbers}")
     
     for num in new_numbers:
         build_api_url = f"{jenkins_url.rstrip('/')}/job/{job_name}/{num}/api/json"
@@ -102,23 +122,37 @@ def poll_job(job_name: str, config: dict, db):
             
         parsed = parse_jenkins_build_detail(job_name, num, build_detail)
         if parsed is None:
-            print(f"Build '{job_name}' #{num} is still in progress. Skipping.")
             continue
             
-        db_build = Build(
-            job_name=parsed["job_name"],
-            build_number=parsed["build_number"],
-            status=parsed["status"],
-            started_at=parsed["started_at"].replace(tzinfo=None),  # SQLite naive DateTime
-            duration_seconds=parsed["duration_seconds"]
-        )
-        try:
+        # Check if build already exists in DB
+        db_build = db.query(Build).filter(
+            Build.job_name == job_name,
+            Build.build_number == num
+        ).first()
+        
+        if db_build:
+            # Update existing build
+            db_build.status = parsed["status"]
+            db_build.started_at = parsed["started_at"].replace(tzinfo=None)
+            db_build.duration_seconds = parsed["duration_seconds"]
+            print(f"Updated '{job_name}' #{num} (Status: {parsed['status']}, Duration: {parsed['duration_seconds']}s)")
+        else:
+            # Insert new build
+            db_build = Build(
+                job_name=parsed["job_name"],
+                build_number=parsed["build_number"],
+                status=parsed["status"],
+                started_at=parsed["started_at"].replace(tzinfo=None),  # SQLite naive DateTime
+                duration_seconds=parsed["duration_seconds"]
+            )
             db.add(db_build)
-            db.commit()
             print(f"Ingested '{job_name}' #{num} (Status: {parsed['status']}, Duration: {parsed['duration_seconds']}s)")
+            
+        try:
+            db.commit()
         except Exception as e:
             db.rollback()
-            print(f"Failed to save build '{job_name}' #{num} to DB: {e}")
+            print(f"Failed to save/update build '{job_name}' #{num} to DB: {e}")
 
 def main():
     config = load_config()

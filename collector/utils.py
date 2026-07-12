@@ -18,12 +18,19 @@ def find_new_build_numbers(jenkins_builds: List[Dict[str, Any]], existing_build_
 def parse_jenkins_build_detail(job_name: str, build_number: int, detail: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     """
     Parses a single build detail dictionary from Jenkins API.
-    Returns parsed dictionary or None if the build is in progress (result is None).
+    Returns parsed dictionary.
     """
     result = detail.get("result")
-    if result is None:
-        # Build is in progress
-        return None
+    building = detail.get("building", False)
+    
+    if building or result is None:
+        status = "BUILDING"
+    else:
+        status_str = str(result).upper()
+        if status_str in ["SUCCESS", "FAILURE", "UNSTABLE", "ABORTED", "NOT_BUILT"]:
+            status = status_str
+        else:
+            status = "UNKNOWN"
         
     timestamp_ms = detail.get("timestamp")
     duration_ms = detail.get("duration", 0)
@@ -39,7 +46,7 @@ def parse_jenkins_build_detail(job_name: str, build_number: int, detail: Dict[st
     return {
         "job_name": job_name,
         "build_number": build_number,
-        "status": str(result).upper(),
+        "status": status,
         "started_at": started_at,
         "duration_seconds": duration_seconds
     }

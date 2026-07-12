@@ -1,6 +1,6 @@
 {
   "jenkins_url": "http://localhost:8080",
-  "jobs": ["snap-link"],
+  "jobs": ["snap-link", "smartspend-pipeline"],
   "poll_interval_seconds": 60,
   "db_path": "data/pipeline.db",
   "jenkins_user": "",
